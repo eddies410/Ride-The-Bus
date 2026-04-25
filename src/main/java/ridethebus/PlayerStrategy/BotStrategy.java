@@ -1,5 +1,9 @@
 package ridethebus.PlayerStrategy;
 
+import ridethebus.GuessesStrategy.HigherLowerGuess;
+import ridethebus.GuessesStrategy.InsideOutsideGuess;
+import ridethebus.GuessesStrategy.RedBlackGuess;
+import ridethebus.GuessesStrategy.SuitGuess;
 import ridethebus.cards.Card;
 import ridethebus.cards.ICard;
 import ridethebus.game.*;

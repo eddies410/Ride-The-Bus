@@ -1,4 +1,4 @@
-package ridethebus.game;
+package ridethebus.GuessesStrategy;
 
 import ridethebus.cards.ICard;
 
@@ -7,28 +7,23 @@ import ridethebus.cards.ICard;
  * Second question in the guessing round.
  * Compares the new card value to the first card dealt.
  */
-public class HigherLowerGuess implements IGuess {
+public class HigherLowerGuess extends BaseGuess {
 
     public static final String HIGHER = "Higher";
     public static final String LOWER = "Lower";
 
-    private final String guess;
     private final ICard firstCard;
 
     public HigherLowerGuess(String guess, ICard firstCard) {
-        if (!guess.equals(HIGHER) && !guess.equals(LOWER)) {
-            throw new IllegalArgumentException("Guess must be Higher or Lower");
-        }
-        this.guess = guess;
+        super(guess, HIGHER, LOWER);
         this.firstCard = firstCard;
     }
 
     @Override
     public boolean isCorrect(ICard card) {
-        if (guess.equals(HIGHER)) {
-            return card.getValue() > firstCard.getValue();
-        }
-        return card.getValue() < firstCard.getValue();
+        return guess.equals(HIGHER)
+                ? card.getValue() > firstCard.getValue()
+                : card.getValue() < firstCard.getValue();
     }
 
     @Override
