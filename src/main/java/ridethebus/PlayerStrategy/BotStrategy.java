@@ -1,4 +1,4 @@
-package ridethebus.Strategy;
+package ridethebus.PlayerStrategy;
 
 import ridethebus.cards.Card;
 import ridethebus.cards.ICard;
@@ -8,25 +8,19 @@ import java.util.List;
 import java.util.Random;
 
 /**
- * Simple bot strategy that makes random guesses for each question type.
- * Implements the Strategy pattern — the bot picks a random valid option
- * for the current question and delegates to the appropriate IGuess impl.
+ * Strategy implementation for a bot player.
+ * Makes random but valid guesses for each question type.
+ * Wagers 20% of current credits and always cashes out after the first correct guess.
  *
- * Wager strategy: always wagers 20% of current credits (min 10).
- * Cash-out strategy: always cashes out after the first correct guess.
+ * Implements IPlayerStrategy — swappable with HumanStrategy at runtime
+ * without changing any game logic.
  */
-public class BotStrategy {
+public class BotStrategy implements IPlayerStrategy {
 
     private static final Random RNG = new Random();
 
-    /**
-     * Returns a random IGuess for the given question index.
-     *   0 = Red / Black
-     *   1 = Higher / Lower  (needs first dealt card)
-     *   2 = Inside / Outside (needs first two dealt cards)
-     *   3 = Suit
-     */
-    public static IGuess makeGuess(int question, List<ICard> dealtSoFar) {
+    @Override
+    public IGuess makeGuess(int question, List<ICard> dealtSoFar) {
         return switch (question) {
             case 0 -> {
                 String[] opts = { Card.RED, Card.BLACK };
@@ -55,13 +49,26 @@ public class BotStrategy {
         };
     }
 
-    /** Wager 20% of credits, minimum 10. */
-    public static int decideWager(int credits) {
+    @Override
+    public int decideWager(int credits) {
         return Math.min(credits, Math.max(10, (int)(credits * 0.20)));
     }
 
-    /** Always cash out after the first correct guess. */
-    public static boolean shouldCashOut(int questionsCorrect) {
+    @Override
+    public boolean shouldCashOut(int questionsCorrect) {
         return questionsCorrect >= 1;
+    }
+
+
+    public static IGuess staticMakeGuess(int question, List<ICard> dealtSoFar) {
+        return new BotStrategy().makeGuess(question, dealtSoFar);
+    }
+
+    public static int staticDecideWager(int credits) {
+        return new BotStrategy().decideWager(credits);
+    }
+
+    public static boolean staticShouldCashOut(int questionsCorrect) {
+        return new BotStrategy().shouldCashOut(questionsCorrect);
     }
 }

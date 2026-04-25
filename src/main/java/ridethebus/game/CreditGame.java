@@ -3,9 +3,12 @@ package ridethebus.game;
 import ridethebus.cards.DeckFactory;
 import ridethebus.cards.ICard;
 import ridethebus.cards.IDeck;
+
+import ridethebus.cards.Joker;
 import ridethebus.characters.IPlayer;
 import ridethebus.observers.EventBus;
 import ridethebus.observers.GameEvent;
+import ridethebus.observers.GameLogger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -35,7 +38,13 @@ public class CreditGame {
     private boolean gameOver = false;
 
     public CreditGame() {
-        this.deck = DeckFactory.createDeck();
+        this.deck = DeckFactory.createDeck("standard");
+        EventBus.getInstance().attach(new GameLogger());
+    }
+
+    public CreditGame(String deckType) {
+        this.deck = DeckFactory.createDeck(deckType);
+        EventBus.getInstance().attach(new GameLogger());
     }
 
     public void addPlayer(IPlayer player) {
@@ -77,6 +86,16 @@ public class CreditGame {
 
         ICard card = deck.deal();
         ps.addDealtCard(card);
+
+        // Joker = instant loss regardless of guess
+        if (card instanceof Joker) {
+            ps.applyLoss();
+            EventBus.getInstance().post(GameEvent.Type.ROUND_ENDED,
+                    player.getName() + " drew a Joker — instant loss!");
+            checkBankruptcy(ps);
+            return card;
+        }
+
         boolean correct = guess.isCorrect(card);
 
         if (correct) {
@@ -127,7 +146,6 @@ public class CreditGame {
 
     public boolean isGameOver() {
         if (currentRound >= TOTAL_ROUNDS && isRoundComplete()) gameOver = true;
-        if (playerStates.stream().anyMatch(PlayerState::isBankrupt)) gameOver = true;
         return gameOver;
     }
 
@@ -151,65 +169,13 @@ public class CreditGame {
     }
 
     public List<PlayerState> getPlayerStates() { return List.copyOf(playerStates); }
+
     public int getCurrentRound() { return currentRound; }
-    public IDeck getDeck() { return deck; }
 
     private void checkBankruptcy(PlayerState ps) {
         if (ps.isBankrupt()) {
-            gameOver = true;
             EventBus.getInstance().post(GameEvent.Type.GAME_OVER,
-                    ps.getPlayer().getName() + " is bankrupt and loses!");
-        }
-    }
-
-    // -------------------------------------------------------------------------
-    // Inner class: per-player round state
-    // -------------------------------------------------------------------------
-    public static class PlayerState {
-        private final IPlayer player;
-        private int credits;
-        private int wager = 0;
-        private int currentQuestion = 0; // 0-4
-        private boolean roundDone = false;
-        private final List<ICard> dealtCards = new ArrayList<>();
-
-        public PlayerState(IPlayer player, int credits) {
-            this.player = player;
-            this.credits = credits;
-        }
-
-        public void startRound() {
-            wager = 0;
-            currentQuestion = 0;
-            roundDone = isBankrupt();
-            dealtCards.clear();
-        }
-
-        public void applyLoss() {
-            credits = Math.max(0, credits - wager);
-            roundDone = true;
-        }
-
-        public void applyWin(int winnings) {
-            credits += winnings;
-            roundDone = true;
-        }
-
-        public void addDealtCard(ICard card) { dealtCards.add(card); }
-
-        public boolean isBankrupt() { return credits <= 0; }
-        public boolean isRoundDone() { return roundDone; }
-
-        public IPlayer getPlayer() { return player; }
-        public int getCredits() { return credits; }
-        public int getWager() { return wager; }
-        public int getCurrentQuestion() { return currentQuestion; }
-        public List<ICard> getDealtCards() { return List.copyOf(dealtCards); }
-
-        public void setWager(int wager) { this.wager = wager; }
-        public void setCurrentQuestion(int q) {
-            this.currentQuestion = q;
-            if (q >= 4) { roundDone = true; }
+                    ps.getPlayer().getName() + " is bankrupt!");
         }
     }
 }

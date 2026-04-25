@@ -17,6 +17,10 @@ public class Deck implements IDeck {
         shuffle();
     }
 
+    public void addCard(ICard card) {
+        cards.add(card);
+    }
+
     private void buildDeck() {
         for (String suit : SUITS) {
             for (int value = 1; value <= 13; value++) {

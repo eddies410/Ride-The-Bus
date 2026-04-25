@@ -3,11 +3,13 @@ package ridethebus.ui;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import ridethebus.PlayerStrategy.IPlayerStrategy;
 import ridethebus.cards.ICard;
 import ridethebus.characters.HumanPlayer;
 import ridethebus.characters.IPlayer;
 import ridethebus.game.*;
-import ridethebus.Strategy.BotStrategy;
+import ridethebus.PlayerStrategy.BotStrategy;
+import ridethebus.game.PlayerState;
 
 import java.util.*;
 
@@ -15,11 +17,11 @@ import java.util.*;
  * REST controller for the credit-based Ride the Bus game.
  *
  * Endpoints:
- *   POST /api/game/create         — create game, choose mode
- *   GET  /api/game/{id}           — get full game state
- *   POST /api/game/{id}/wager     — place wager before round
- *   POST /api/game/{id}/guess     — submit a guess for current question
- *   POST /api/game/{id}/cashout   — cash out after a correct guess
+ *   POST /api/game/create          — create game, choose mode and deck type
+ *   GET  /api/game/{id}            — get full game state
+ *   POST /api/game/{id}/wager      — place wager before round
+ *   POST /api/game/{id}/guess      — submit a guess for current question
+ *   POST /api/game/{id}/cashout    — cash out after a correct guess
  *   POST /api/game/{id}/next-round — advance to next round
  */
 @RestController
@@ -27,17 +29,19 @@ import java.util.*;
 @CrossOrigin(origins = "*")
 public class GameController {
 
+    private final IPlayerStrategy botStrategy = new BotStrategy();
     private final Map<String, CreditGame> games = new HashMap<>();
     private final Map<String, IPlayer> botPlayers = new HashMap<>();
 
     @PostMapping("/game/create")
     public ResponseEntity<?> createGame(@RequestBody Map<String, String> body) {
         try {
-            String p1Name = body.getOrDefault("player1", "Player 1").trim();
-            String mode   = body.getOrDefault("mode", "vs-bot");
+            String p1Name  = body.getOrDefault("player1", "Player 1").trim();
+            String mode    = body.getOrDefault("mode", "vs-bot");
+            String deckType = body.getOrDefault("deckType", "standard");
 
             String gameId = UUID.randomUUID().toString().substring(0, 8);
-            CreditGame game = new CreditGame();
+            CreditGame game = new CreditGame(deckType);
 
             IPlayer p1 = new HumanPlayer(p1Name);
             game.addPlayer(p1);
@@ -77,7 +81,7 @@ public class GameController {
         String playerName = (String) body.get("playerName");
         int wager = ((Number) body.get("wager")).intValue();
 
-        CreditGame.PlayerState ps = game.getStateByName(playerName);
+        PlayerState ps = game.getStateByName(playerName);
         if (ps == null) return ResponseEntity.badRequest().body(Map.of("error", "Player not found"));
 
         boolean ok = game.placeWager(ps.getPlayer(), wager);
@@ -86,9 +90,9 @@ public class GameController {
         // Auto-wager for bot
         IPlayer bot = botPlayers.get(gameId);
         if (bot != null) {
-            CreditGame.PlayerState botState = game.getState(bot);
+            PlayerState botState = game.getState(bot);
             if (botState != null && !botState.isRoundDone() && botState.getWager() == 0) {
-                game.placeWager(bot, BotStrategy.decideWager(botState.getCredits()));
+                game.placeWager(bot, botStrategy.decideWager(botState.getCredits()));
             }
         }
 
@@ -104,7 +108,7 @@ public class GameController {
         String playerName = body.get("playerName");
         String guessValue = body.get("guess");
 
-        CreditGame.PlayerState ps = game.getStateByName(playerName);
+        PlayerState ps = game.getStateByName(playerName);
         if (ps == null) return ResponseEntity.badRequest().body(Map.of("error", "Player not found"));
         if (ps.isRoundDone()) return ResponseEntity.badRequest().body(Map.of("error", "Round already done"));
         if (ps.getWager() == 0) return ResponseEntity.badRequest().body(Map.of("error", "Place a wager first"));
@@ -116,13 +120,17 @@ public class GameController {
         ICard card = game.processGuess(ps.getPlayer(), guess);
         boolean correct = guess.isCorrect(card);
 
+        // Check for joker — always a loss regardless of guess
+        boolean joker = card.getSuit().equals("Joker");
+
         Integer winnings = null;
-        if (correct && ps.getCurrentQuestion() >= 4) {
+        if (!joker && correct && ps.getCurrentQuestion() >= 4) {
             winnings = game.autoWin(ps.getPlayer());
         }
 
         String botEvent = runBotTurn(gameId, game);
-        Map<String, Object> state = buildState(gameId, game, card, correct, winnings);
+        Map<String, Object> state = buildState(gameId, game, card, joker ? false : correct, winnings);
+        if (joker) state.put("joker", true);
         if (botEvent != null) state.put("botEvent", botEvent);
         return ResponseEntity.ok(state);
     }
@@ -132,8 +140,9 @@ public class GameController {
                                      @RequestBody Map<String, String> body) {
         CreditGame game = games.get(gameId);
         if (game == null) return notFound(gameId);
-        CreditGame.PlayerState ps = game.getStateByName(body.get("playerName"));
+        PlayerState ps = game.getStateByName(body.get("playerName"));
         if (ps == null) return ResponseEntity.badRequest().body(Map.of("error", "Player not found"));
+        if (ps.isRoundDone()) return ResponseEntity.ok(buildState(gameId, game, null, null, null));
         int winnings = game.cashOut(ps.getPlayer());
         return ResponseEntity.ok(buildState(gameId, game, null, null, winnings));
     }
@@ -153,20 +162,28 @@ public class GameController {
     private String runBotTurn(String gameId, CreditGame game) {
         IPlayer bot = botPlayers.get(gameId);
         if (bot == null) return null;
-        CreditGame.PlayerState bs = game.getState(bot);
+        PlayerState bs = game.getState(bot);
         if (bs == null || bs.isRoundDone() || bs.getWager() == 0) return null;
 
         StringBuilder log = new StringBuilder();
         while (!bs.isRoundDone()) {
             int q = bs.getCurrentQuestion();
-            IGuess guess = BotStrategy.makeGuess(q, bs.getDealtCards());
+            IGuess guess = botStrategy.makeGuess(q, bs.getDealtCards());
             ICard card = game.processGuess(bot, guess);
-            boolean correct = guess.isCorrect(card);
+            boolean joker = card.getSuit().equals("Joker");
+            boolean correct = !joker && guess.isCorrect(card);
+
+            if (joker) {
+                log.append("Bot drew a Joker — instant loss! ");
+                break;
+            }
+
             log.append("Bot: ").append(guess.getGuessDescription())
                     .append(" → ").append(card.getDisplayName())
-                    .append(correct ? " ✓" : " ✗"). append(". ");
+                    .append(correct ? " ✓" : " ✗").append(". ");
+
             if (correct && bs.getCurrentQuestion() >= 4) { game.autoWin(bot); break; }
-            if (correct && BotStrategy.shouldCashOut(bs.getCurrentQuestion())) {
+            if (correct && botStrategy.shouldCashOut(bs.getCurrentQuestion())) {
                 int w = game.cashOut(bot);
                 log.append("Cashed out ").append(w).append(" credits.");
                 break;
@@ -196,7 +213,7 @@ public class GameController {
         if (game.isGameOver() && game.getWinner() != null) s.put("winner", game.getWinner().getName());
 
         List<Map<String, Object>> players = new ArrayList<>();
-        for (CreditGame.PlayerState ps : game.getPlayerStates()) {
+        for (PlayerState ps : game.getPlayerStates()) {
             Map<String, Object> p = new LinkedHashMap<>();
             p.put("name", ps.getPlayer().getName());
             p.put("credits", ps.getCredits());

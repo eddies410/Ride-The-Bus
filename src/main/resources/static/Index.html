@@ -6,6 +6,23 @@
     <title>Ride the Bus</title>
     <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
+        .p1-active { --player-color: #c0392b; }
+        .p2-active { --player-color: #2471a3; }
+
+        .player-card.active-player {
+            border-color: var(--player-color, var(--text));
+        }
+
+        .q-steps.p1 .q-step.active { color: #c0392b; border-color: #c0392b; }
+        .q-steps.p1 .q-step.done { color: #c0392b; border-color: #c0392b; opacity: 0.5; }
+        .q-steps.p2 .q-step.active { color: #2471a3; border-color: #2471a3; }
+        .q-steps.p2 .q-step.done { color: #2471a3; border-color: #2471a3; opacity: 0.5; }
+
+        .btn.p1 { border-color: #c0392b; color: #c0392b; }
+        .btn.p1.primary { background: #c0392b; color: #fff; border-color: #c0392b; }
+        .btn.p2 { border-color: #2471a3; color: #2471a3; }
+        .btn.p2.primary { background: #2471a3; color: #fff; border-color: #2471a3; }
+
         :root {
             --bg: #ffffff;
             --surface: #f7f7f7;
@@ -115,38 +132,21 @@
 
 <!-- LANDING -->
 <div id="screen-landing" class="screen active">
-    <div class="card-stack">
-        <div class="stacked-card"></div>
-        <div class="stacked-card"></div>
-        <div class="stacked-card"></div>
-        <div class="stacked-card top"></div>
-    </div>
+    <div style="font-size:5rem;">🃏</div>
     <div class="landing-title">Ride the Bus</div>
-    <button class="btn primary" onclick="showScreen('screen-setup')">Play</button>
+    <div style="display:flex;flex-direction:column;gap:0.75rem;width:100%;max-width:260px;">
+        <button class="btn primary" onclick="startGame('vs-human')">Player vs Player</button>
+        <button class="btn" onclick="startGame('vs-bot')">Player vs AI</button>
+    </div>
 </div>
 
-<!-- SETUP -->
-<div id="screen-setup" class="screen">
-    <div class="setup-box">
-        <div class="setup-title">New Game</div>
-        <div class="field">
-            <label>Your Name</label>
-            <input type="text" id="p1Name" value="Player 1" />
-        </div>
-        <div class="field">
-            <label>Mode</label>
-            <div class="mode-row">
-                <button class="mode-btn selected" id="modeBotBtn" onclick="selectMode('vs-bot')">vs Bot</button>
-                <button class="mode-btn" id="modeHumanBtn" onclick="selectMode('vs-human')">vs Human</button>
-            </div>
-        </div>
-        <div class="field" id="p2Field" style="display:none">
-            <label>Player 2 Name</label>
-            <input type="text" id="p2Name" value="Player 2" />
-        </div>
-        <button class="btn primary" onclick="startGame()">Start</button>
-        <button class="btn" onclick="showScreen('screen-landing')">Back</button>
-        <div id="setupErr" style="font-size:0.7rem;color:var(--red);margin-top:0.25rem;"></div>
+
+<!-- PASS SCREEN -->
+<div id="screen-pass" class="screen">
+    <div style="text-align:center;display:flex;flex-direction:column;align-items:center;gap:2rem;justify-content:center;min-height:100vh;">
+        <div style="font-size:0.65rem;letter-spacing:0.15em;text-transform:uppercase;color:var(--muted);">Next Up</div>
+        <div class="landing-title" id="passTitle">Player 2's Turn</div>
+        <button class="btn primary" id="passBtn" onclick="resumeTurn()">Ready</button>
     </div>
 </div>
 
@@ -228,6 +228,7 @@
 </div>
 
 <script>
+    let currentTurnPlayer = 'Player 1';
     const BASE = 'http://localhost:8080/api';
     const SUIT_SYMBOLS = { Hearts:'♥', Diamonds:'♦', Clubs:'♣', Spades:'♠' };
     const RED_SUITS = ['Hearts','Diamonds'];
@@ -249,31 +250,6 @@
         document.getElementById(id).classList.add('active');
     }
 
-    function selectMode(mode) {
-        gameMode = mode;
-        document.getElementById('modeBotBtn').classList.toggle('selected', mode === 'vs-bot');
-        document.getElementById('modeHumanBtn').classList.toggle('selected', mode === 'vs-human');
-        document.getElementById('p2Field').style.display = mode === 'vs-human' ? 'block' : 'none';
-    }
-
-    async function startGame() {
-        const p1 = document.getElementById('p1Name').value.trim() || 'Player 1';
-        const p2 = document.getElementById('p2Name').value.trim() || 'Player 2';
-        humanPlayerName = p1;
-        try {
-            const body = { player1: p1, mode: gameMode };
-            if (gameMode === 'vs-human') body.player2 = p2;
-            const res = await fetch(`${BASE}/game/create`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error);
-            gameId = data.gameId;
-            applyState(data);
-            resetRoundUI();
-            document.getElementById('wagerInput').value = 100;
-            showScreen('screen-game');
-            log('Game started — Round 1 of 5', 'info');
-        } catch(e) { document.getElementById('setupErr').textContent = e.message; }
-    }
 
     async function submitWager() {
         const wager = parseInt(document.getElementById('wagerInput').value);
@@ -286,6 +262,52 @@
             log(`Wagered ${wager} credits`, 'info');
             showGuessSection(data);
         } catch(e) { log('Error: ' + e.message, 'bad'); }
+    }
+
+    function showPassScreen(nextPlayer) {
+        currentTurnPlayer = nextPlayer;
+        document.getElementById('passTitle').textContent = nextPlayer + "'s Turn";
+        const btn = document.getElementById('passBtn');
+        btn.className = 'btn primary ' + (nextPlayer === 'Player 1' ? 'p1' : 'p2');
+        showScreen('screen-pass');
+    }
+
+    function resumeTurn() {
+        showScreen('screen-game');
+        humanPlayerName = currentTurnPlayer;
+        resetRoundUI();
+        applyState(state);
+        updatePlayerColors();
+        // always start with wager screen for the incoming player
+        document.getElementById('wagerSection').style.display = 'flex';
+        document.getElementById('guessSection').style.display = 'none';
+    }
+    async function startGame(mode) {
+        gameMode = mode;
+        humanPlayerName = 'Player 1';
+        document.getElementById('wagerInput').value = 50;
+        try {
+            const body = { player1: 'Player 1', mode: gameMode, player2: 'Player 2' };
+            const res = await fetch(`${BASE}/game/create`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error);
+            gameId = data.gameId;
+            applyState(data);
+            resetRoundUI();
+            showScreen('screen-game');
+            updatePlayerColors();
+            log('Game started — Round 1 of 5', 'info');
+        } catch(e) { console.error(e); }
+    }
+
+    function updatePlayerColors() {
+        const isP1 = humanPlayerName === 'Player 1';
+        document.getElementById('screen-game').className = 'screen active ' + (isP1 ? 'p1-active' : 'p2-active');
+        document.querySelector('.q-steps').className = 'q-steps ' + (isP1 ? 'p1' : 'p2');
     }
 
     async function submitGuess(guess) {
@@ -319,8 +341,15 @@
             if (!res.ok) throw new Error(data.error);
             applyState(data);
             if (data.isOver) { showGameOver(data); return; }
-            resetRoundUI();
-            log(`Round ${data.round} of ${data.totalRounds}`, 'info');
+
+            if (gameMode === 'vs-human') {
+                humanPlayerName = 'Player 1';
+                updatePlayerColors();
+                showPassScreen('Player 1');
+            } else {
+                resetRoundUI();
+                log(`Round ${data.round} of ${data.totalRounds}`, 'info');
+            }
         } catch(e) { log('Error: ' + e.message, 'bad'); }
     }
 
@@ -405,11 +434,24 @@
         const btn = document.getElementById('nextRoundBtn');
         sec.style.display = 'block';
         document.getElementById('guessSection').style.display = 'none';
+
+        if (gameMode === 'vs-human' && humanPlayerName === 'Player 1') {
+            const p2State = data.players.find(p => p.name === 'Player 2');
+            if (p2State && !p2State.roundDone) {
+                btn.textContent = 'Pass to Player 2';
+                btn.className = 'btn primary p2';
+                btn.onclick = () => showPassScreen('Player 2');
+                return;
+            }
+        }
+
         if (data.isOver || data.round >= data.totalRounds) {
             btn.textContent = 'See Results';
+            btn.className = 'btn primary';
             btn.onclick = () => showGameOver(data);
         } else {
-            btn.textContent = 'Next Round →';
+            btn.textContent = 'Next Round';
+            btn.className = 'btn primary';
             btn.onclick = doNextRound;
         }
     }
