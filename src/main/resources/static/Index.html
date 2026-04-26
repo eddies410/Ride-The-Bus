@@ -135,11 +135,47 @@
     <div style="font-size:5rem;">🃏</div>
     <div class="landing-title">Ride the Bus</div>
     <div style="display:flex;flex-direction:column;gap:0.75rem;width:100%;max-width:260px;">
-        <button class="btn primary" onclick="startGame('vs-human')">Player vs Player</button>
-        <button class="btn" onclick="startGame('vs-bot')">Player vs AI</button>
+        <button class="btn primary" onclick="goToSetup('vs-human')">Player vs Player</button>
+        <button class="btn" onclick="goToSetup('vs-bot')">Player vs AI</button>
     </div>
 </div>
+<!-- SETUP -->
+<div id="screen-setup" class="screen">
+    <div class="setup-box">
+        <div class="setup-title">Game Setup</div>
 
+        <div class="field">
+            <label>Player 1 Name</label>
+            <input type="text" id="p1Name" value="Player 1" maxlength="16"/>
+        </div>
+
+        <div id="p2NameField" class="field" style="display:none;">
+            <label>Player 2 Name</label>
+            <input type="text" id="p2Name" value="Player 2" maxlength="16"/>
+        </div>
+
+        <div class="field">
+            <label>Deck Type</label>
+            <div class="mode-row">
+                <button class="mode-btn selected" onclick="selectDeck(this,'standard')">
+                    Standard<br><span style="font-size:0.6rem;color:var(--muted)">52 cards</span>
+                </button>
+                <button class="mode-btn" onclick="selectDeck(this,'short')">
+                    Short<br><span style="font-size:0.6rem;color:var(--muted)">36 cards</span>
+                </button>
+                <button class="mode-btn" onclick="selectDeck(this,'joker')">
+                    Joker<br><span style="font-size:0.6rem;color:var(--muted)">54 cards</span>
+                </button>
+                <button class="mode-btn" onclick="selectDeck(this,'double')">
+                    Double<br><span style="font-size:0.6rem;color:var(--muted)">104 cards</span>
+                </button>
+            </div>
+        </div>
+
+        <button class="btn primary" onclick="confirmSetup()">Start Game</button>
+        <button class="btn" onclick="showScreen('screen-landing')">← Back</button>
+    </div>
+</div>
 
 <!-- PASS SCREEN -->
 <div id="screen-pass" class="screen">
@@ -244,13 +280,33 @@
     let state = null;
     let gameMode = 'vs-bot';
     let humanPlayerName = null;
+    let selectedDeckType = 'standard';
+
+
 
     function showScreen(id) {
         document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
         document.getElementById(id).classList.add('active');
     }
 
+    function goToSetup(mode) {
+        gameMode = mode;
+        document.getElementById('p2NameField').style.display =
+            mode === 'vs-human' ? 'block' : 'none';
+        showScreen('screen-setup');
+    }
 
+    function selectDeck(btn, type) {
+        document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('selected'));
+        btn.classList.add('selected');
+        selectedDeckType = type;
+    }
+
+    function confirmSetup() {
+        const p1 = document.getElementById('p1Name').value.trim() || 'Player 1';
+        const p2 = document.getElementById('p2Name').value.trim() || 'Player 2';
+        startGame(gameMode, p1, p2);
+    }
     async function submitWager() {
         const wager = parseInt(document.getElementById('wagerInput').value);
         if (!wager || wager < 1) return;
@@ -282,12 +338,17 @@
         document.getElementById('wagerSection').style.display = 'flex';
         document.getElementById('guessSection').style.display = 'none';
     }
-    async function startGame(mode) {
+    async function startGame(mode, p1Name = 'Player 1', p2Name = 'Player 2') {
         gameMode = mode;
-        humanPlayerName = 'Player 1';
+        humanPlayerName = p1Name;
         document.getElementById('wagerInput').value = 50;
         try {
-            const body = { player1: 'Player 1', mode: gameMode, player2: 'Player 2' };
+            const body = {
+                player1: p1Name,
+                mode: gameMode,
+                player2: p2Name,
+                deckType: selectedDeckType
+            };
             const res = await fetch(`${BASE}/game/create`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -300,12 +361,12 @@
             resetRoundUI();
             showScreen('screen-game');
             updatePlayerColors();
-            log('Game started — Round 1 of 5', 'info');
+            log(`Game started — ${selectedDeckType} deck — Round 1 of 5`, 'info');
         } catch(e) { console.error(e); }
     }
-
     function updatePlayerColors() {
-        const isP1 = humanPlayerName === 'Player 1';
+        // use index position instead of hardcoded name
+        const isP1 = state?.players?.[0]?.name === humanPlayerName;
         document.getElementById('screen-game').className = 'screen active ' + (isP1 ? 'p1-active' : 'p2-active');
         document.querySelector('.q-steps').className = 'q-steps ' + (isP1 ? 'p1' : 'p2');
     }
@@ -336,16 +397,21 @@
 
     async function doNextRound() {
         try {
-            const res = await fetch(`${BASE}/game/${gameId}/next-round`, { method:'POST', headers:{'Content-Type':'application/json'} });
+            const res = await fetch(`${BASE}/game/${gameId}/next-round`, {
+                method:'POST',
+                headers:{'Content-Type':'application/json'}
+            });
             const data = await res.json();
             if (!res.ok) throw new Error(data.error);
             applyState(data);
             if (data.isOver) { showGameOver(data); return; }
 
             if (gameMode === 'vs-human') {
-                humanPlayerName = 'Player 1';
+                // use actual player names from state instead of hardcoded strings
+                const p1Name = data.players[0].name;
+                humanPlayerName = p1Name;
                 updatePlayerColors();
-                showPassScreen('Player 1');
+                showPassScreen(p1Name);
             } else {
                 resetRoundUI();
                 log(`Round ${data.round} of ${data.totalRounds}`, 'info');
@@ -428,19 +494,19 @@
         el.innerHTML = `<div class="c-val">${card.name.split(' ')[0]}</div><div class="c-suit">${SUIT_SYMBOLS[card.suit] || card.suit}</div>`;
         row.appendChild(el);
     }
-
     function showNextRoundBtn(data) {
         const sec = document.getElementById('nextRoundSection');
         const btn = document.getElementById('nextRoundBtn');
         sec.style.display = 'block';
         document.getElementById('guessSection').style.display = 'none';
 
-        if (gameMode === 'vs-human' && humanPlayerName === 'Player 1') {
-            const p2State = data.players.find(p => p.name === 'Player 2');
-            if (p2State && !p2State.roundDone) {
-                btn.textContent = 'Pass to Player 2';
+        if (gameMode === 'vs-human') {
+            // get actual p2 name from state instead of hardcoding 'Player 2'
+            const p2 = data.players.find(p => p.name !== humanPlayerName);
+            if (p2 && !p2.roundDone) {
+                btn.textContent = `Pass to ${p2.name}`;
                 btn.className = 'btn primary p2';
-                btn.onclick = () => showPassScreen('Player 2');
+                btn.onclick = () => showPassScreen(p2.name);
                 return;
             }
         }
